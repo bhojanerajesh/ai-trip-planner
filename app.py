@@ -225,7 +225,10 @@ def get_api_key() -> str:
 
 
 def get_database_url() -> str:
-    return _secret("DATABASE_URL")
+    url = _secret("DATABASE_URL")
+    if url and "supabase" in url.lower() and "sslmode=" not in url.lower():
+        url += ("&" if "?" in url else "?") + "sslmode=require"
+    return url
 
 
 def run_query(sql: str, params: tuple | None = None, fetch: bool = False):
@@ -248,7 +251,23 @@ def run_query(sql: str, params: tuple | None = None, fetch: bool = False):
         conn.close()
 
 
+def ensure_trips_table() -> None:
+    run_query(
+        """
+        CREATE TABLE IF NOT EXISTS trips (
+            id SERIAL PRIMARY KEY,
+            destination TEXT NOT NULL,
+            days INTEGER NOT NULL,
+            style TEXT NOT NULL,
+            itinerary TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """
+    )
+
+
 def save_trip(destination: str, days: int, style: str, itinerary: list[dict]) -> None:
+    ensure_trips_table()
     run_query(
         "INSERT INTO trips (destination, days, style, itinerary) VALUES (%s, %s, %s, %s)",
         (destination, days, style, json.dumps(itinerary)),
@@ -256,6 +275,7 @@ def save_trip(destination: str, days: int, style: str, itinerary: list[dict]) ->
 
 
 def list_saved_trips() -> list[tuple]:
+    ensure_trips_table()
     return (
         run_query(
             "SELECT id, destination, days, style, itinerary, created_at "
@@ -544,13 +564,24 @@ with st.sidebar:
 
     st.divider()
     st.subheader("My past trips")
+    past_trips = []
+    trips_error = None
     try:
         past_trips = list_saved_trips()
     except Exception as exc:
-        past_trips = []
-        st.caption(f"Could not load saved trips: {exc}")
+        trips_error = str(exc)
 
-    if not past_trips:
+    if trips_error:
+        lowered = trips_error.lower()
+        if "translate host name" in lowered or "no address associated" in lowered:
+            st.caption(
+                "Could not reach the database. Streamlit Cloud cannot use the IPv6-only "
+                "Supabase host `db.*.supabase.co`. In Secrets, set DATABASE_URL to the "
+                "Session pooler URI from Supabase → Project Settings → Database → Connect."
+            )
+        else:
+            st.caption(f"Could not load saved trips: {trips_error}")
+    elif not past_trips:
         st.caption("No saved trips yet.")
     else:
         for trip_id, dest, days, style, itinerary_json, created_at in past_trips:
