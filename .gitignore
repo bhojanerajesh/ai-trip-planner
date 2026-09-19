@@ -1,0 +1,28 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+*secret*
+*credentials*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local app data
+chroma/
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+Thumbs.db
