@@ -5,6 +5,13 @@ import os
 import sys
 from pathlib import Path
 
+try:
+    import pysqlite3
+
+    sys.modules["sqlite3"] = pysqlite3
+except ImportError:
+    pass
+
 import chromadb
 import psycopg2
 import streamlit as st
@@ -44,10 +51,6 @@ st.markdown(
 
         [data-testid="stHeader"] {
             background: transparent;
-        }
-
-        [data-testid="stToolbar"] {
-            display: none;
         }
 
         [data-testid="stSidebar"] {
@@ -206,12 +209,23 @@ st.markdown(
 DAY_FIELDS = ("day_number", "theme", "morning", "afternoon", "evening", "food_tip")
 
 
+def _secret(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if value:
+        return value
+    try:
+        secret = st.secrets.get(name, "")
+    except Exception:
+        return ""
+    return str(secret).strip() if secret else ""
+
+
 def get_api_key() -> str:
-    return (os.environ.get("OPENAI_API_KEY") or "").strip()
+    return _secret("OPENAI_API_KEY")
 
 
 def get_database_url() -> str:
-    return (os.environ.get("DATABASE_URL") or "").strip()
+    return _secret("DATABASE_URL")
 
 
 def run_query(sql: str, params: tuple | None = None, fetch: bool = False):
@@ -292,13 +306,20 @@ def get_tips_collection():
         )
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    collection = client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        embedding_function=OpenAIEmbeddingFunction(
+    try:
+        embedding_function = OpenAIEmbeddingFunction(
             api_key=api_key,
             api_key_env_var="OPENAI_API_KEY",
             model_name="text-embedding-3-small",
-        ),
+        )
+    except TypeError:
+        embedding_function = OpenAIEmbeddingFunction(
+            api_key=api_key,
+            model_name="text-embedding-3-small",
+        )
+    collection = client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=embedding_function,
     )
     if collection.count() == 0:
         lines = load_tip_lines()
